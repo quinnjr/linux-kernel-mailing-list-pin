@@ -22,6 +22,9 @@ pnpm tauri dev          # development
 pnpm tauri build        # release bundles under src-tauri/target/release/bundle
 ```
 
+Building with plain `cargo build --release` needs `--features custom-protocol`,
+otherwise the binary tries to load the Vite dev server at `localhost:1420`.
+
 Tests:
 
 ```sh
@@ -29,6 +32,16 @@ cd src-tauri
 cargo test                       # unit tests
 cargo test -- --include-ignored  # also hits lore.kernel.org
 pnpm check                       # svelte-check
+```
+
+### Arch Linux
+
+`packaging/arch/PKGBUILD` builds `lkml-pin-git` from the develop branch, with
+the version taken from the latest tag and the commits since it:
+
+```sh
+cd packaging/arch
+makepkg -si
 ```
 
 ## Configuration
