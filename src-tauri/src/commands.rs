@@ -19,11 +19,14 @@ pub fn save_settings(
     settings: Settings,
     password: Option<String>,
 ) -> AppResult<Settings> {
-    state.db.lock().unwrap().save_settings(&settings)?;
+    // Keyring first: if it fails nothing else is half-saved.
     if let Some(p) = password.filter(|p| !p.is_empty()) {
-        // Google shows App Passwords as "abcd efgh ijkl mnop"; the spaces are not part of it.
-        secrets::set_password(&settings.smtp_user, &p.split_whitespace().collect::<String>())?;
+        if settings.smtp_user.is_empty() {
+            return Err(AppError::Settings("enter the SMTP username before saving a password".into()));
+        }
+        secrets::set_password(&settings.smtp_user, &p)?;
     }
+    state.db.lock().unwrap().save_settings(&settings)?;
     state.poll_changed.notify_one();
     let mut s = settings;
     s.has_password = secrets::has_password(&s.smtp_user);
@@ -35,7 +38,7 @@ pub fn save_settings(
 #[tauri::command]
 pub async fn test_smtp(settings: Settings, password: Option<String>) -> AppResult<()> {
     let password = match password.filter(|p| !p.is_empty()) {
-        Some(p) => p.split_whitespace().collect::<String>(),
+        Some(p) => p,
         None if settings.smtp_user.is_empty() => String::new(),
         None => secrets::get_password(&settings.smtp_user)?
             .ok_or_else(|| AppError::Settings("no password entered or saved".into()))?,
@@ -61,21 +64,25 @@ pub async fn send_email(
         secrets::get_password(&settings.smtp_user)?
             .ok_or_else(|| AppError::Settings("no SMTP password saved in Settings".into()))?
     };
-    let sent = mail::send(&settings, &password, &draft).await?;
+    let message_id = mail::new_message_id(&settings.email);
+    let email = mail::build(&settings, &draft, &message_id)?;
+    // Record the thread before the irreversible send, so a database failure
+    // can never leave a delivered message untracked; roll back if SMTP fails.
     let now = chrono::Utc::now().to_rfc3339();
-    let lore_url = mail::lore_url(&sent.message_id);
-    let id = {
-        let db = state.db.lock().unwrap();
-        db.insert_thread(&NewThread {
-            message_id: &sent.message_id,
-            subject: draft.subject.trim(),
-            to_addr: &draft.to,
-            cc: &draft.cc,
-            body: &draft.body,
-            sent_at: &now,
-            lore_url: &lore_url,
-        })?
-    };
+    let lore_url = mail::lore_url(&message_id);
+    let id = state.db.lock().unwrap().insert_thread(&NewThread {
+        message_id: &message_id,
+        subject: draft.subject.trim(),
+        to_addr: &draft.to,
+        cc: &draft.cc,
+        body: &draft.body,
+        sent_at: &now,
+        lore_url: &lore_url,
+    })?;
+    if let Err(e) = mail::send(&settings, &password, email).await {
+        let _ = state.db.lock().unwrap().delete_thread(id);
+        return Err(e);
+    }
     let _ = app.emit(THREADS_UPDATED, ());
     let detail = state.db.lock().unwrap().get_thread(id)?;
     detail
@@ -123,24 +130,21 @@ pub async fn refresh_all(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<RefreshReport>> {
-    let reports = refresh_every_thread(&state).await;
+    let reports = refresh_every_thread(&state).await?;
     let _ = app.emit(THREADS_UPDATED, ());
     Ok(reports)
 }
 
-pub async fn refresh_every_thread(state: &AppState) -> Vec<RefreshReport> {
-    let ids = state.db.lock().unwrap().thread_ids().unwrap_or_default();
+pub async fn refresh_every_thread(state: &AppState) -> AppResult<Vec<RefreshReport>> {
+    let ids = state.db.lock().unwrap().thread_ids()?;
     let mut reports = Vec::with_capacity(ids.len());
     for id in ids {
-        match refresh_one(state, id).await {
-            Ok(r) => reports.push(r),
-            Err(AppError::NotOnLore) => {
-                reports.push(RefreshReport { thread_id: id, new_replies: 0, on_lore: false })
-            }
-            Err(e) => eprintln!("refresh thread {id}: {e}"),
-        }
+        reports.push(match refresh_one(state, id).await {
+            Ok(r) => r,
+            Err(e) => RefreshReport { thread_id: id, new_replies: 0, on_lore: false, error: Some(e.to_string()) },
+        });
     }
-    reports
+    Ok(reports)
 }
 
 async fn refresh_one(state: &AppState, id: i64) -> AppResult<RefreshReport> {
@@ -155,13 +159,14 @@ async fn refresh_one(state: &AppState, id: i64) -> AppResult<RefreshReport> {
         Ok(m) => m,
         Err(AppError::NotOnLore) => {
             state.db.lock().unwrap().touch_checked(id, &now)?;
-            return Ok(RefreshReport { thread_id: id, new_replies: 0, on_lore: false });
+            return Ok(RefreshReport { thread_id: id, new_replies: 0, on_lore: false, error: None });
         }
         Err(e) => return Err(e),
     };
     let db = state.db.lock().unwrap();
     let mut new_replies = 0;
-    for m in messages.iter().filter(|m| m.message_id != message_id) {
+    let root = mail::bare_id(&message_id);
+    for m in messages.iter().filter(|m| mail::bare_id(&m.message_id) != root) {
         let inserted = db.insert_reply(&NewReply {
             thread_id: id,
             message_id: &m.message_id,
@@ -178,5 +183,5 @@ async fn refresh_one(state: &AppState, id: i64) -> AppResult<RefreshReport> {
         }
     }
     db.touch_checked(id, &now)?;
-    Ok(RefreshReport { thread_id: id, new_replies, on_lore: true })
+    Ok(RefreshReport { thread_id: id, new_replies, on_lore: true, error: None })
 }

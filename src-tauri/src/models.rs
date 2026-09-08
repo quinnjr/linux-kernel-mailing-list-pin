@@ -74,4 +74,6 @@ pub struct RefreshReport {
     pub thread_id: i64,
     pub new_replies: usize,
     pub on_lore: bool,
+    /// Set when the check itself failed (network, lore outage, database).
+    pub error: Option<String>,
 }

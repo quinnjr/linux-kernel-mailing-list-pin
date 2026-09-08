@@ -57,6 +57,7 @@ export interface RefreshReport {
   thread_id: number;
   new_replies: number;
   on_lore: boolean;
+  error: string | null;
 }
 
 export const api = {

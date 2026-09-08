@@ -70,6 +70,9 @@ minutes. Each reply links back to its lore page.
 | `G` | Check lore for every thread |
 | `Ctrl+Enter` | Send |
 
+An unsent draft is kept while you switch views; it is cleared only after a
+successful send.
+
 ## Notes
 
 - The icon is Tux by Larry Ewing and The GIMP; see `src-tauri/icons/ATTRIBUTION.md`.

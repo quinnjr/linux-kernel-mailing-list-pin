@@ -67,7 +67,7 @@ async fn poll_loop(app: tauri::AppHandle) {
         let sleep = tokio::time::sleep(Duration::from_secs(u64::from(minutes) * 60));
         tokio::select! {
             _ = sleep => {
-                let reports = commands::refresh_every_thread(&state).await;
+                let reports = commands::refresh_every_thread(&state).await.unwrap_or_default();
                 let fresh: usize = reports.iter().map(|r| r.new_replies).sum();
                 let _ = app.emit(commands::THREADS_UPDATED, ());
                 if fresh > 0 {

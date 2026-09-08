@@ -28,6 +28,7 @@
         {#each store.threads as t (t.id)}
           <li>
             <button
+              id="thread-{t.id}"
               class="grid w-full grid-cols-[1ch_5ch_5ch_minmax(0,1fr)] items-baseline gap-x-2 border-b border-ink-800 px-4 py-2 text-left transition-colors hover:bg-ink-800/60
                 {store.selectedId === t.id ? 'bg-ink-800' : ''}"
               onclick={() => store.open(t.id)}

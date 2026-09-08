@@ -11,6 +11,9 @@
   let { id }: { id: number } = $props();
   let detail = $state<ThreadDetail | null>(null);
   let busy = $state(false);
+  let confirmDelete = $state(false);
+  /** Which replies were unread when this view opened; the "N" flags stay put while reading. */
+  let unreadAtOpen = $state<Set<string>>(new Set());
 
   const rows = $derived(detail ? threadTree(detail.summary.message_id, detail.replies) : []);
 
@@ -39,6 +42,11 @@
   }
 
   async function remove() {
+    if (!confirmDelete) {
+      confirmDelete = true;
+      setTimeout(() => (confirmDelete = false), 4000);
+      return;
+    }
     await api.deleteThread(id);
     store.selectedId = null;
   }
@@ -46,7 +54,9 @@
   onMount(() => {
     const unlisten = api.onThreadsUpdated(load);
     load().then(() => {
-      if (detail && detail.summary.unread_count > 0) api.markThreadRead(id);
+      if (!detail) return;
+      unreadAtOpen = new Set(detail.replies.filter((r) => !r.read).map((r) => r.message_id));
+      if (unreadAtOpen.size > 0) api.markThreadRead(id);
     });
     return () => {
       unlisten.then((f) => f());
@@ -65,7 +75,9 @@
         <div class="flex shrink-0 gap-1.5">
           <button class="btn" onclick={refresh} disabled={busy}>{busy ? "Checking…" : "Check lore"}</button>
           <button class="btn" onclick={() => openUrl(s.lore_url)}>Open on lore ↗</button>
-          <button class="btn btn-danger" onclick={remove}>Stop tracking</button>
+          <button class="btn btn-danger {confirmDelete ? 'border-del text-ink-50' : ''}" onclick={remove}>
+            {confirmDelete ? "Click again to stop tracking" : "Stop tracking"}
+          </button>
         </div>
       </div>
       <dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 font-mono text-[11.5px]">
@@ -94,7 +106,7 @@
           loreUrl={row.reply.lore_url}
           prefix={row.prefix}
           depth={row.depth}
-          unread={!row.reply.read}
+          unread={unreadAtOpen.has(row.reply.message_id)}
         />
       {/each}
     </div>

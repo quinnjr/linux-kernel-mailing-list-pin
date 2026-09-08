@@ -54,7 +54,7 @@ impl Db {
             CREATE TABLE IF NOT EXISTS replies (
                 id INTEGER PRIMARY KEY,
                 thread_id INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-                message_id TEXT NOT NULL UNIQUE,
+                message_id TEXT NOT NULL,
                 in_reply_to TEXT,
                 from_name TEXT NOT NULL DEFAULT '',
                 from_addr TEXT NOT NULL DEFAULT '',
@@ -62,12 +62,57 @@ impl Db {
                 subject TEXT NOT NULL DEFAULT '',
                 body TEXT NOT NULL DEFAULT '',
                 read INTEGER NOT NULL DEFAULT 0,
-                lore_url TEXT NOT NULL DEFAULT ''
+                lore_url TEXT NOT NULL DEFAULT '',
+                UNIQUE(thread_id, message_id)
             );
-            CREATE INDEX IF NOT EXISTS replies_thread ON replies(thread_id);
             "#,
         )?;
-        Ok(Self { conn })
+        let db = Self { conn };
+        db.migrate()?;
+        Ok(db)
+    }
+
+    /// Schema version 1 made `replies.message_id` unique per thread instead
+    /// of globally. Replies are a cache of lore, so an old table is simply
+    /// rebuilt and refilled on the next check.
+    fn migrate(&self) -> AppResult<()> {
+        let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < 1 {
+            let old_global_unique: bool = self
+                .conn
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'replies'",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )
+                .map(|sql| !sql.contains("UNIQUE(thread_id, message_id)"))
+                .unwrap_or(false);
+            if old_global_unique {
+                self.conn.execute_batch(
+                    r#"
+                    CREATE TABLE replies_new (
+                        id INTEGER PRIMARY KEY,
+                        thread_id INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+                        message_id TEXT NOT NULL,
+                        in_reply_to TEXT,
+                        from_name TEXT NOT NULL DEFAULT '',
+                        from_addr TEXT NOT NULL DEFAULT '',
+                        date TEXT NOT NULL,
+                        subject TEXT NOT NULL DEFAULT '',
+                        body TEXT NOT NULL DEFAULT '',
+                        read INTEGER NOT NULL DEFAULT 0,
+                        lore_url TEXT NOT NULL DEFAULT '',
+                        UNIQUE(thread_id, message_id)
+                    );
+                    INSERT INTO replies_new SELECT * FROM replies;
+                    DROP TABLE replies;
+                    ALTER TABLE replies_new RENAME TO replies;
+                    "#,
+                )?;
+            }
+            self.conn.pragma_update(None, "user_version", 1)?;
+        }
+        Ok(())
     }
 
     // ----- settings -----
@@ -131,7 +176,7 @@ impl Db {
         SELECT t.id, t.message_id, t.subject, t.to_addr, t.cc, t.sent_at, t.last_checked_at, t.lore_url,
                (SELECT COUNT(*) FROM replies r WHERE r.thread_id = t.id),
                (SELECT COUNT(*) FROM replies r WHERE r.thread_id = t.id AND r.read = 0),
-               COALESCE((SELECT MAX(r.date) FROM replies r WHERE r.thread_id = t.id), t.sent_at)
+               COALESCE((SELECT MAX(r.date) FROM replies r WHERE r.thread_id = t.id), t.sent_at) AS last_activity
         FROM threads t
     "#;
 
@@ -152,7 +197,7 @@ impl Db {
     }
 
     pub fn list_threads(&self) -> AppResult<Vec<ThreadSummary>> {
-        let sql = format!("{} ORDER BY 11 DESC", Self::SUMMARY_SQL);
+        let sql = format!("{} ORDER BY last_activity DESC", Self::SUMMARY_SQL);
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], Self::row_to_summary)?;
         Ok(rows.collect::<Result<_, _>>()?)

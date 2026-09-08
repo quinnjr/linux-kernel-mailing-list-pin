@@ -76,20 +76,29 @@ fn to_lore_message(m: &ParsedMail) -> Option<LoreMessage> {
     if message_id.is_empty() {
         return None;
     }
+    // Gnus and friends append a comment after the id; keep only the first <...>.
     let in_reply_to = h
         .get_first_value("In-Reply-To")
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+        .and_then(|s| first_msg_id(&s));
     let (from_name, from_addr) = parse_from(&h.get_first_value("From").unwrap_or_default());
     let raw_date = h.get_first_value("Date").unwrap_or_default();
-    let date = mailparse::dateparse(&raw_date)
-        .ok()
+    // Dates are compared as strings everywhere, so an unparseable or missing
+    // header falls back to "now" instead of poisoning the sort order.
+    let date = Some(raw_date.trim())
+        .filter(|d| !d.is_empty())
+        .and_then(|d| mailparse::dateparse(d).ok())
         .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
-        .map(|dt| dt.to_rfc3339())
-        .unwrap_or(raw_date);
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339();
     let subject = h.get_first_value("Subject").unwrap_or_default();
     let body = text_body(m).unwrap_or_default();
     Some(LoreMessage { message_id, in_reply_to, from_name, from_addr, date, subject, body })
+}
+
+fn first_msg_id(s: &str) -> Option<String> {
+    let start = s.find('<')?;
+    let end = s[start..].find('>')? + start;
+    Some(s[start..=end].to_string())
 }
 
 fn parse_from(raw: &str) -> (String, String) {
@@ -149,7 +158,7 @@ From mboxrd@z Thu Jan  1 00:00:00 1970\n\
 From: bob@example.com\n\
 Subject: Re: [PATCH] foo\n\
 Message-ID: <b@example.com>\n\
-In-Reply-To: <a@example.com>\n\
+In-Reply-To: <a@example.com> (Alice's message of 1 Jan)\n\
 Date: Mon, 1 Jan 2024 11:00:00 +0000\n\
 Content-Type: text/plain\n\
 \n\

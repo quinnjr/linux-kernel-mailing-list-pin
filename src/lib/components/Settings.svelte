@@ -26,6 +26,25 @@
     provider = detectProvider(s);
   });
 
+  /** Number inputs bind null when cleared; send something serde accepts. */
+  function normalized(): Settings {
+    return {
+      ...s,
+      smtp_port: Math.min(65535, Math.max(1, Math.round(Number(s.smtp_port) || 587))),
+      poll_minutes: Math.max(1, Math.round(Number(s.poll_minutes) || 15)),
+    };
+  }
+
+  /** Google shows App Passwords as "abcd efgh ijkl mnop"; only there are spaces noise. */
+  function passwordToSend(): string {
+    return provider.id === "gmail" ? password.replace(/\s+/g, "") : password;
+  }
+
+  function onHostChange() {
+    provider = detectProvider(s);
+    testResult = null;
+  }
+
   function applyProvider(p: Provider) {
     provider = p;
     if (p.host) {
@@ -46,7 +65,7 @@
   async function save() {
     saving = true;
     try {
-      s = await api.saveSettings(s, password);
+      s = await api.saveSettings(normalized(), passwordToSend());
       password = "";
       store.notify("ok", "Settings saved");
     } catch (e) {
@@ -60,7 +79,7 @@
     testing = true;
     testResult = null;
     try {
-      await api.testSmtp(s, password);
+      await api.testSmtp(normalized(), passwordToSend());
       testResult = { ok: true, text: `Connected to ${s.smtp_host}:${s.smtp_port} and signed in.` };
     } catch (e) {
       testResult = { ok: false, text: explain(errorText(e)) };
@@ -138,7 +157,7 @@
             {/each}
           </div>
         </div>
-        <label class="row"><span>SMTP host</span><input class="field" bind:value={s.smtp_host} placeholder="smtp.example.org" spellcheck="false" /></label>
+        <label class="row"><span>SMTP host</span><input class="field" bind:value={s.smtp_host} oninput={onHostChange} placeholder="smtp.example.org" spellcheck="false" /></label>
         <label class="row">
           <span>Security</span>
           <select class="field" bind:value={s.smtp_security} onchange={onSecurity}>

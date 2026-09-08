@@ -16,7 +16,8 @@ export function threadTree(rootId: string, replies: Reply[]): TreeRow[] {
   const byId = new Map(replies.map((r) => [r.message_id, r]));
   const children = new Map<string, Reply[]>();
   for (const r of replies) {
-    const parent = r.in_reply_to && byId.has(r.in_reply_to) ? r.in_reply_to : rootId;
+    const parentId = firstMsgId(r.in_reply_to);
+    const parent = parentId && parentId !== r.message_id && byId.has(parentId) ? parentId : rootId;
     const list = children.get(parent) ?? [];
     list.push(r);
     children.set(parent, list);
@@ -24,9 +25,12 @@ export function threadTree(rootId: string, replies: Reply[]): TreeRow[] {
   for (const list of children.values()) list.sort((a, b) => a.date.localeCompare(b.date));
 
   const rows: TreeRow[] = [];
+  const seen = new Set<string>();
   const walk = (id: string, depth: number, trunk: string) => {
     const kids = children.get(id) ?? [];
     kids.forEach((k, i) => {
+      if (seen.has(k.message_id)) return;
+      seen.add(k.message_id);
       const last = i === kids.length - 1;
       const branch = depth === 0 ? "" : trunk + (last ? "└─" : "├─");
       rows.push({ reply: k, depth, prefix: branch });
@@ -34,5 +38,16 @@ export function threadTree(rootId: string, replies: Reply[]): TreeRow[] {
     });
   };
   walk(rootId, 0, "");
+  // Anything unreachable (a cycle among replies) still gets shown, flat at the root.
+  for (const r of replies) {
+    if (!seen.has(r.message_id)) rows.push({ reply: r, depth: 0, prefix: "" });
+  }
   return rows;
+}
+
+/** In-Reply-To may carry a comment or several ids; the first <...> is the parent. */
+function firstMsgId(v: string | null): string | null {
+  if (!v) return null;
+  const m = /<[^>]+>/.exec(v);
+  return m ? m[0] : v.trim();
 }
