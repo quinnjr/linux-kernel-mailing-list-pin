@@ -1,0 +1,119 @@
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans-condensed/500.css";
+@import "@fontsource/ibm-plex-sans-condensed/600.css";
+@import "tailwindcss";
+
+/*
+  Tokens. The palette is a lifted charcoal-blue, never pure black, with the
+  two colours every kernel developer already reads every day: diff green and
+  diff red. There is no single "brand" accent; the primary action is an
+  inverted light chip, and yellow appears only as mutt's unread flag.
+*/
+@theme {
+  --font-sans: "IBM Plex Sans", "Cantarell", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+
+  --color-ink-950: #161a20;
+  --color-ink-900: #1c2128;
+  --color-ink-800: #232a32;
+  --color-ink-700: #2d353f;
+  --color-ink-600: #3a444f;
+  --color-ink-400: #6f7b88;
+  --color-ink-300: #97a2ae;
+  --color-ink-200: #c4ccd4;
+  --color-ink-100: #e6eaee;
+  --color-ink-50: #f4f6f8;
+
+  --color-add: #86b56f;
+  --color-add-dim: #2a3a2a;
+  --color-del: #d26b6b;
+  --color-del-dim: #3d2a2a;
+  --color-flag: #e9c46a;
+}
+
+html { color-scheme: dark; }
+html, body, #app { height: 100%; }
+body { background: var(--color-ink-900); color: var(--color-ink-100); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--color-ink-100); color: var(--color-ink-900); }
+
+:focus-visible { outline: 2px solid var(--color-ink-100); outline-offset: 1px; }
+
+@layer components {
+  .eyebrow {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-ink-400);
+  }
+  .field {
+    @apply w-full rounded-sm border border-ink-600 bg-ink-950 px-2.5 py-1.5 font-mono text-[13px] text-ink-100 outline-none placeholder:text-ink-400;
+  }
+  .field:focus { border-color: var(--color-ink-200); }
+  .row { @apply grid grid-cols-[7rem_1fr] items-center gap-3 text-sm; }
+  .row > span {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-ink-400);
+  }
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-sm border border-ink-600 px-2.5 py-1 text-[12.5px] text-ink-200 transition-colors;
+  }
+  .btn:hover { background: var(--color-ink-700); color: var(--color-ink-50); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-[12.5px] font-medium transition-colors;
+    background: var(--color-ink-100);
+    color: var(--color-ink-900);
+  }
+  .btn-primary:hover { background: #ffffff; }
+  .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-danger:hover { background: var(--color-del-dim); border-color: var(--color-del); color: var(--color-ink-50); }
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-ink-400);
+    border: 1px solid var(--color-ink-600);
+    border-radius: 2px;
+    padding: 0 4px;
+    line-height: 16px;
+  }
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 18px;
+    padding: 0 5px;
+    border-radius: 2px;
+    background: var(--color-ink-700);
+    color: var(--color-ink-200);
+    white-space: nowrap;
+  }
+  .tag-patch { background: var(--color-add-dim); color: var(--color-add); }
+  /* Dashed rule after column 72, in the element's own font, moving with its scroll. */
+  .column-guide {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--color-ink-600) 0 6px,
+      transparent 6px 10px
+    );
+    background-size: 1px 100%;
+    background-repeat: no-repeat;
+    background-position: calc(0.625rem + 72ch) 0;
+    background-attachment: local;
+  }
+  .tag-rfc { background: var(--color-del-dim); color: var(--color-del); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
