@@ -13,6 +13,7 @@ url="https://github.com/quinnjr/linux-kernel-mailing-list-pin"
 license=(MIT)
 depends=(webkit2gtk-4.1 gtk3 dbus hicolor-icon-theme)
 makedepends=(git cargo nodejs pnpm)
+options=(!debug)
 provides=("$_pkgname")
 conflicts=("$_pkgname")
 source=("$_pkgname::git+$url.git#branch=develop"
@@ -35,6 +36,8 @@ prepare() {
 build() {
   cd "$_pkgname"
   export CARGO_TARGET_DIR=target
+  # Keep build paths out of the binary (panic messages would otherwise cite $srcdir).
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
   # The Vite bundle is embedded by tauri-build, so plain cargo suffices.
   pnpm build
   cargo build --release --frozen --manifest-path src-tauri/Cargo.toml
@@ -43,6 +46,7 @@ build() {
 check() {
   cd "$_pkgname"
   export CARGO_TARGET_DIR=target
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
   cargo test --release --frozen --manifest-path src-tauri/Cargo.toml
 }
 
