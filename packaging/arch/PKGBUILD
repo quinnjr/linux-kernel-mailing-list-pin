@@ -1,0 +1,60 @@
+# Maintainer: Joseph R. Quinn <quinn.josephr@gmail.com>
+#
+# VCS package: builds the develop branch and versions it from the latest
+# tag plus the number of commits since, e.g. 0.1.0.r4.gd87ab79.
+
+pkgname=lkml-pin-git
+_pkgname=lkml-pin
+pkgver=0.1.0.r0.g22ea780
+pkgrel=1
+pkgdesc="Send top-level emails to the Linux kernel mailing list and track replies via lore.kernel.org"
+arch=(x86_64 aarch64)
+url="https://github.com/quinnjr/linux-kernel-mailing-list-pin"
+license=(MIT)
+depends=(webkit2gtk-4.1 gtk3 dbus hicolor-icon-theme)
+makedepends=(git cargo nodejs pnpm)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+$url.git#branch=develop"
+        "$_pkgname.desktop")
+sha256sums=('SKIP'
+            'SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  git describe --long --tags --abbrev=7 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+prepare() {
+  cd "$_pkgname"
+  pnpm install --frozen-lockfile
+  cargo fetch --locked --manifest-path src-tauri/Cargo.toml \
+    --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$_pkgname"
+  export CARGO_TARGET_DIR=target
+  # The Vite bundle is embedded by tauri-build, so plain cargo suffices.
+  pnpm build
+  cargo build --release --frozen --manifest-path src-tauri/Cargo.toml
+}
+
+check() {
+  cd "$_pkgname"
+  export CARGO_TARGET_DIR=target
+  cargo test --release --frozen --manifest-path src-tauri/Cargo.toml
+}
+
+package() {
+  cd "$_pkgname"
+  install -Dm755 "target/release/$_pkgname" "$pkgdir/usr/bin/$_pkgname"
+  install -Dm644 "$srcdir/$_pkgname.desktop" "$pkgdir/usr/share/applications/$_pkgname.desktop"
+  install -Dm644 src-tauri/icons/32x32.png "$pkgdir/usr/share/icons/hicolor/32x32/apps/$_pkgname.png"
+  install -Dm644 src-tauri/icons/128x128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/$_pkgname.png"
+  install -Dm644 src-tauri/icons/128x128@2x.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/$_pkgname.png"
+  install -Dm644 src-tauri/icons/icon.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/$_pkgname.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 src-tauri/icons/ATTRIBUTION.md "$pkgdir/usr/share/licenses/$pkgname/ICON-ATTRIBUTION.md"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

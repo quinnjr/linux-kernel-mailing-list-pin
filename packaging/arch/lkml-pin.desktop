@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=LKML Pin
+Comment=Send top-level emails to the Linux kernel mailing list and track replies
+Exec=lkml-pin
+Icon=lkml-pin
+Terminal=false
+Categories=Network;Email;Development;
+Keywords=kernel;lkml;lore;patch;mailing list;
+StartupWMClass=lkml-pin

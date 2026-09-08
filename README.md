@@ -31,6 +31,16 @@ cargo test -- --include-ignored  # also hits lore.kernel.org
 pnpm check                       # svelte-check
 ```
 
+### Arch Linux
+
+`packaging/arch/PKGBUILD` builds `lkml-pin-git` from the develop branch, with
+the version taken from the latest tag and the commits since it:
+
+```sh
+cd packaging/arch
+makepkg -si
+```
+
 ## Configuration
 
 Open **Settings** on first launch and enter your name, address and SMTP
