@@ -41,8 +41,8 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="grid h-full grid-rows-[1fr_auto] bg-ink-900">
-  <div class="flex min-h-0">
+<div class="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[1fr_auto] overflow-hidden bg-ink-900">
+  <div class="flex min-h-0 min-w-0">
     <Rail />
     <main class="flex min-w-0 flex-1 flex-col">
       {#if store.view === "threads"}

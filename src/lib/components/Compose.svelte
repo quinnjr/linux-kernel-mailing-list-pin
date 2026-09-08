@@ -62,7 +62,7 @@
   </header>
 
   <div class="flex min-h-0 flex-1 flex-col px-6 py-4">
-    <div class="grid grid-cols-[6ch_1fr] items-center gap-x-3 gap-y-1.5 font-mono text-[13px]">
+    <div class="grid grid-cols-[8ch_1fr] items-center gap-x-3 gap-y-1.5 font-mono text-[13px]">
       <label class="text-ink-400" for="to">To:</label>
       <textarea id="to" class="field resize-none" rows="1" bind:value={draft.to} spellcheck="false"></textarea>
       <label class="text-ink-400" for="cc">Cc:</label>
