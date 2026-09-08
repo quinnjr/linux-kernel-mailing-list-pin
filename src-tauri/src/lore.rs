@@ -18,8 +18,7 @@ pub struct LoreMessage {
 }
 
 pub fn thread_mbox_url(message_id: &str) -> String {
-    let bare = message_id.trim_matches(|c| c == '<' || c == '>');
-    format!("https://lore.kernel.org/all/{bare}/t.mbox.gz")
+    format!("https://lore.kernel.org/all/{}/t.mbox.gz", crate::mail::encoded_id(message_id))
 }
 
 pub async fn fetch_thread(client: &reqwest::Client, message_id: &str) -> AppResult<Vec<LoreMessage>> {
@@ -71,7 +70,7 @@ fn split_mbox(raw: &[u8]) -> Vec<&[u8]> {
 
 fn to_lore_message(m: &ParsedMail) -> Option<LoreMessage> {
     let h = &m.headers;
-    let message_id = h.get_first_value("Message-ID").or_else(|| h.get_first_value("Message-Id"))?;
+    let message_id = h.get_first_value("Message-ID")?;
     let message_id = message_id.trim().to_string();
     if message_id.is_empty() {
         return None;

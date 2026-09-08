@@ -42,6 +42,8 @@ pub struct ThreadSummary {
     pub sent_at: String,
     pub last_checked_at: Option<String>,
     pub lore_url: String,
+    /// "sent" or "unconfirmed" (SMTP reported an error after the row was written).
+    pub status: String,
     pub reply_count: i64,
     pub unread_count: i64,
     pub last_activity: String,

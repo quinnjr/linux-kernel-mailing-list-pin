@@ -8,17 +8,32 @@
   import Subject from "./Subject.svelte";
   import Message from "./Message.svelte";
 
+  /** How long a thread must stay on screen before it counts as read, so j/k skimming keeps flags. */
+  const READ_DWELL_MS = 1500;
+
   let { id }: { id: number } = $props();
   let detail = $state<ThreadDetail | null>(null);
   let busy = $state(false);
   let confirmDelete = $state(false);
-  /** Which replies were unread when this view opened; the "N" flags stay put while reading. */
-  let unreadAtOpen = $state<Set<string>>(new Set());
+  /** Replies that were unread at any point while this view was open keep their "N" flag. */
+  let flagged = $state<Set<string>>(new Set());
+  let dwelled = false;
 
   const rows = $derived(detail ? threadTree(detail.summary.message_id, detail.replies) : []);
 
   async function load() {
-    detail = await api.getThread(id);
+    try {
+      detail = await api.getThread(id);
+    } catch (e) {
+      store.notify("err", errorText(e));
+      return;
+    }
+    if (!detail) return;
+    const fresh = detail.replies.filter((r) => !r.read).map((r) => r.message_id);
+    if (fresh.length) {
+      flagged = new Set([...flagged, ...fresh]);
+      if (dwelled) api.markThreadRead(id);
+    }
   }
 
   async function refresh() {
@@ -53,12 +68,13 @@
 
   onMount(() => {
     const unlisten = api.onThreadsUpdated(load);
-    load().then(() => {
-      if (!detail) return;
-      unreadAtOpen = new Set(detail.replies.filter((r) => !r.read).map((r) => r.message_id));
-      if (unreadAtOpen.size > 0) api.markThreadRead(id);
-    });
+    load();
+    const dwell = setTimeout(() => {
+      dwelled = true;
+      if (detail?.replies.some((r) => !r.read)) api.markThreadRead(id);
+    }, READ_DWELL_MS);
     return () => {
+      clearTimeout(dwell);
       unlisten.then((f) => f());
     };
   });
@@ -80,6 +96,12 @@
           </button>
         </div>
       </div>
+      {#if s.status === "unconfirmed"}
+        <p class="mt-3 border-l-2 border-flag pl-3 font-mono text-[11.5px] leading-relaxed text-ink-200">
+          The mail server reported an error during the send, so delivery is unconfirmed. If this thread
+          appears on lore it went out; if it never does, stop tracking it and send again.
+        </p>
+      {/if}
       <dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 font-mono text-[11.5px]">
         <dt class="text-ink-400">To</dt><dd class="truncate text-ink-200">{s.to_addr}</dd>
         {#if s.cc}<dt class="text-ink-400">Cc</dt><dd class="truncate text-ink-200">{s.cc}</dd>{/if}
@@ -106,7 +128,7 @@
           loreUrl={row.reply.lore_url}
           prefix={row.prefix}
           depth={row.depth}
-          unread={unreadAtOpen.has(row.reply.message_id)}
+          unread={flagged.has(row.reply.message_id)}
         />
       {/each}
     </div>

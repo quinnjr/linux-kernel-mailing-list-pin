@@ -41,6 +41,7 @@
               </span>
               <Subject subject={t.subject} strong={t.unread_count > 0} />
               <span class="col-start-4 mt-0.5 truncate font-mono text-[11px] text-ink-400">
+                {#if t.status === "unconfirmed"}<span class="text-flag">delivery unconfirmed · </span>{/if}
                 {t.last_checked_at ? `checked ${relativeTime(t.last_checked_at)}` : "not checked yet"}
               </span>
             </button>

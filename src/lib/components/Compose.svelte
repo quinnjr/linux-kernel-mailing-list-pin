@@ -64,9 +64,16 @@
   <div class="flex min-h-0 flex-1 flex-col px-6 py-4">
     <div class="grid grid-cols-[6ch_1fr] items-center gap-x-3 gap-y-1.5 font-mono text-[13px]">
       <label class="text-ink-400" for="to">To:</label>
-      <input id="to" class="field" bind:value={draft.to} spellcheck="false" />
+      <textarea id="to" class="field resize-none" rows="1" bind:value={draft.to} spellcheck="false"></textarea>
       <label class="text-ink-400" for="cc">Cc:</label>
-      <input id="cc" class="field" bind:value={draft.cc} placeholder="maintainers from get_maintainer.pl, other lists" spellcheck="false" />
+      <textarea
+        id="cc"
+        class="field resize-y"
+        rows="2"
+        bind:value={draft.cc}
+        placeholder="paste get_maintainer.pl output: one address per line, comments are fine"
+        spellcheck="false"
+      ></textarea>
       <label class="text-ink-400" for="subject">Subject:</label>
       <input id="subject" class="field" bind:value={draft.subject} placeholder="[RFC] subsystem: what changes and why" />
       {#if draft.subject.trim()}
@@ -75,11 +82,12 @@
       {/if}
     </div>
 
-    <!-- 72-column guide: the list's line-length convention, drawn as a rule -->
+    <!-- 72-column guide: painted by the textarea itself so it uses the textarea's
+         own font metrics and scrolls with the text (background-attachment: local) -->
     <div class="relative mt-3 min-h-0 flex-1">
       <textarea
         bind:this={textarea}
-        class="field h-full resize-none leading-[1.55]"
+        class="field column-guide h-full resize-none leading-[1.55]"
         bind:value={draft.body}
         oninput={updateCaret}
         onclick={updateCaret}
@@ -88,11 +96,6 @@
         spellcheck="true"
         wrap="off"
       ></textarea>
-      <div
-        class="pointer-events-none absolute inset-y-0 border-l border-dashed border-ink-600"
-        style="left: calc(0.625rem + 1px + 72ch)"
-        aria-hidden="true"
-      ></div>
     </div>
 
     <div class="mt-2 flex items-center gap-4 font-mono text-[11px] text-ink-400">

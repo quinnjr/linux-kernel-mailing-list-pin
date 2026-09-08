@@ -99,6 +99,18 @@ body { background: var(--color-ink-900); color: var(--color-ink-100); font-famil
     white-space: nowrap;
   }
   .tag-patch { background: var(--color-add-dim); color: var(--color-add); }
+  /* Dashed rule after column 72, in the element's own font, moving with its scroll. */
+  .column-guide {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--color-ink-600) 0 6px,
+      transparent 6px 10px
+    );
+    background-size: 1px 100%;
+    background-repeat: no-repeat;
+    background-position: calc(0.625rem + 72ch) 0;
+    background-attachment: local;
+  }
   .tag-rfc { background: var(--color-del-dim); color: var(--color-del); }
 }
 

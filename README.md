@@ -46,7 +46,8 @@ STARTTLS on port 587 and sets the username to your address. For the password:
 
 1. Turn on 2-Step Verification for the Google account.
 2. Create an App Password at <https://myaccount.google.com/apppasswords>
-   (the app shows a link). Paste the 16 characters; spaces are ignored.
+   (the app shows a link). Paste the 16 characters; the spaces Google shows
+   between the groups are ignored. Other passwords are stored exactly as typed.
 3. Click **Test connection**, then **Save settings**.
 
 Google rewrites the From header to the account address unless the address is
@@ -71,7 +72,13 @@ minutes. Each reply links back to its lore page.
 | `Ctrl+Enter` | Send |
 
 An unsent draft is kept while you switch views; it is cleared only after a
-successful send.
+successful send. A thread stays unread while you skim past it with `j`/`k`;
+it is marked read after it has been on screen for a moment.
+
+If the mail server errors during a send, the thread is kept and marked
+"delivery unconfirmed" rather than deleted: SMTP cannot say whether the
+message was queued before the failure. If it turns up on lore it went out;
+if it never does, stop tracking it and send again.
 
 ## Notes
 

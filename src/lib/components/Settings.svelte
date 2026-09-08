@@ -1,72 +1,76 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { api, errorText, type Settings } from "../api";
+  import { api, errorText } from "../api";
   import { store } from "../store.svelte";
   import { detectProvider, guessProviderFromEmail, providers, type Provider } from "../providers";
 
-  let s = $state<Settings>({
-    display_name: "",
-    email: "",
-    smtp_host: "",
-    smtp_port: 587,
-    smtp_user: "",
-    smtp_security: "starttls",
-    poll_minutes: 15,
-    has_password: false,
-  });
-  let password = $state("");
+  // The form lives in the store so switching views never loses edits or a typed password.
+  const form = store.settingsForm;
   let saving = $state(false);
   let testing = $state(false);
   let testResult = $state<{ ok: boolean; text: string } | null>(null);
   let provider = $state<Provider>(providers[providers.length - 1]);
+  /** Email as it was when the username was last auto-filled from it. */
+  let usernameFollowsEmail = $state("");
 
   onMount(async () => {
-    s = await api.getSettings();
-    provider = detectProvider(s);
+    if (!form.loaded) {
+      try {
+        form.s = await api.getSettings();
+        form.loaded = true;
+      } catch (e) {
+        store.notify("err", errorText(e));
+        return;
+      }
+    }
+    provider = detectProvider(form.s);
+    if (form.s.smtp_user === form.s.email) usernameFollowsEmail = form.s.email;
   });
 
   /** Number inputs bind null when cleared; send something serde accepts. */
-  function normalized(): Settings {
+  function normalized() {
     return {
-      ...s,
-      smtp_port: Math.min(65535, Math.max(1, Math.round(Number(s.smtp_port) || 587))),
-      poll_minutes: Math.max(1, Math.round(Number(s.poll_minutes) || 15)),
+      ...form.s,
+      smtp_port: Math.min(65535, Math.max(1, Math.round(Number(form.s.smtp_port) || 587))),
+      poll_minutes: Math.min(1440, Math.max(1, Math.round(Number(form.s.poll_minutes) || 15))),
     };
   }
 
-  /** Google shows App Passwords as "abcd efgh ijkl mnop"; only there are spaces noise. */
-  function passwordToSend(): string {
-    return provider.id === "gmail" ? password.replace(/\s+/g, "") : password;
-  }
-
   function onHostChange() {
-    provider = detectProvider(s);
+    provider = detectProvider(form.s);
     testResult = null;
   }
 
   function applyProvider(p: Provider) {
     provider = p;
     if (p.host) {
-      s.smtp_host = p.host;
-      s.smtp_port = p.port;
-      s.smtp_security = p.security;
+      form.s.smtp_host = p.host;
+      form.s.smtp_port = p.port;
+      form.s.smtp_security = p.security;
     }
-    if (p.userIsEmail && s.email) s.smtp_user = s.email;
+    if (p.userIsEmail && form.s.email && !form.s.smtp_user) {
+      form.s.smtp_user = form.s.email;
+      usernameFollowsEmail = form.s.email;
+    }
     testResult = null;
   }
 
   function onEmailChange() {
-    if (provider.userIsEmail) s.smtp_user = s.email;
-    const g = guessProviderFromEmail(s.email);
-    if (g && !s.smtp_host) applyProvider(g);
+    // Only keep the username in step with the email while it was derived from it.
+    if (provider.userIsEmail && (form.s.smtp_user === "" || form.s.smtp_user === usernameFollowsEmail)) {
+      form.s.smtp_user = form.s.email;
+      usernameFollowsEmail = form.s.email;
+    }
+    const g = guessProviderFromEmail(form.s.email);
+    if (g && !form.s.smtp_host) applyProvider(g);
   }
 
   async function save() {
     saving = true;
     try {
-      s = await api.saveSettings(normalized(), passwordToSend());
-      password = "";
+      form.s = await api.saveSettings(normalized(), form.password);
+      form.password = "";
       store.notify("ok", "Settings saved");
     } catch (e) {
       store.notify("err", errorText(e));
@@ -75,46 +79,39 @@
     }
   }
 
+  async function forget() {
+    try {
+      form.s = await api.forgetPassword();
+      store.notify("ok", "Password removed from the keyring");
+    } catch (e) {
+      store.notify("err", errorText(e));
+    }
+  }
+
   async function test() {
     testing = true;
     testResult = null;
     try {
-      await api.testSmtp(normalized(), passwordToSend());
-      testResult = { ok: true, text: `Connected to ${s.smtp_host}:${s.smtp_port} and signed in.` };
+      const text = await api.testSmtp(normalized(), form.password);
+      testResult = { ok: true, text };
     } catch (e) {
-      testResult = { ok: false, text: explain(errorText(e)) };
+      testResult = { ok: false, text: errorText(e) };
     } finally {
       testing = false;
     }
   }
 
-  /** Turn the common SMTP failures into the fix, in the provider's own words. */
-  function explain(msg: string): string {
-    const m = msg.toLowerCase();
-    if (provider.id === "gmail") {
-      if (m.includes("535") || m.includes("not accepted") || m.includes("badcredentials"))
-        return "Google rejected the sign-in. Use a 16-character App Password (2-Step Verification must be on) and your full address as the username.";
-      if (m.includes("534"))
-        return "Google wants an App Password for this account; the normal account password is not accepted over SMTP.";
-    }
-    if (m.includes("535")) return "The server rejected the username or password.";
-    if (m.includes("tls") || m.includes("certificate"))
-      return `TLS failed: ${msg}. Check that Security matches the port (STARTTLS for 587, implicit TLS for 465).`;
-    if (m.includes("refused") || m.includes("timed out") || m.includes("dns") || m.includes("resolve"))
-      return `Could not reach ${s.smtp_host}:${s.smtp_port}. ${msg}`;
-    return msg;
-  }
-
   function onSecurity() {
-    if (s.smtp_security === "tls" && s.smtp_port === 587) s.smtp_port = 465;
-    if (s.smtp_security === "starttls" && s.smtp_port === 465) s.smtp_port = 587;
+    if (form.s.smtp_security === "tls" && form.s.smtp_port === 587) form.s.smtp_port = 465;
+    if (form.s.smtp_security === "starttls" && form.s.smtp_port === 465) form.s.smtp_port = 587;
+    testResult = null;
   }
 
   const gmailFromMismatch = $derived(
     provider.id === "gmail" &&
-      s.email !== "" &&
-      s.smtp_user !== "" &&
-      s.email.toLowerCase() !== s.smtp_user.toLowerCase(),
+      form.s.email !== "" &&
+      form.s.smtp_user !== "" &&
+      form.s.email.toLowerCase() !== form.s.smtp_user.toLowerCase(),
   );
 </script>
 
@@ -122,7 +119,7 @@
   <header class="flex items-center justify-between border-b border-ink-700 px-6 py-2.5">
     <h1 class="eyebrow">Settings</h1>
     <div class="flex gap-1.5">
-      <button class="btn" onclick={test} disabled={testing || !s.smtp_host}>
+      <button class="btn" onclick={test} disabled={testing || !form.s.smtp_host}>
         {testing ? "Connecting…" : "Test connection"}
       </button>
       <button class="btn-primary" onclick={save} disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
@@ -133,10 +130,10 @@
     <div class="max-w-xl space-y-8">
       <fieldset class="space-y-2.5">
         <legend class="eyebrow mb-2">From header</legend>
-        <label class="row"><span>Name</span><input class="field" bind:value={s.display_name} placeholder="Jane Hacker" /></label>
+        <label class="row"><span>Name</span><input class="field" bind:value={form.s.display_name} placeholder="Jane Hacker" /></label>
         <label class="row">
           <span>Email</span>
-          <input class="field" bind:value={s.email} oninput={onEmailChange} placeholder="jane@example.org" spellcheck="false" />
+          <input class="field" bind:value={form.s.email} oninput={onEmailChange} placeholder="jane@example.org" spellcheck="false" />
         </label>
       </fieldset>
 
@@ -157,21 +154,21 @@
             {/each}
           </div>
         </div>
-        <label class="row"><span>SMTP host</span><input class="field" bind:value={s.smtp_host} oninput={onHostChange} placeholder="smtp.example.org" spellcheck="false" /></label>
+        <label class="row"><span>SMTP host</span><input class="field" bind:value={form.s.smtp_host} oninput={onHostChange} placeholder="smtp.example.org" spellcheck="false" /></label>
         <label class="row">
           <span>Security</span>
-          <select class="field" bind:value={s.smtp_security} onchange={onSecurity}>
+          <select class="field" bind:value={form.s.smtp_security} onchange={onSecurity}>
             <option value="starttls">STARTTLS, port 587</option>
             <option value="tls">Implicit TLS, port 465</option>
             <option value="none">None, local relay only</option>
           </select>
         </label>
-        <label class="row"><span>Port</span><input class="field w-28" type="number" bind:value={s.smtp_port} min="1" max="65535" /></label>
+        <label class="row"><span>Port</span><input class="field w-28" type="number" bind:value={form.s.smtp_port} min="1" max="65535" /></label>
         <label class="row">
           <span>Username</span>
           <input
             class="field"
-            bind:value={s.smtp_user}
+            bind:value={form.s.smtp_user}
             spellcheck="false"
             autocomplete="off"
             placeholder={provider.userIsEmail ? "your full address" : ""}
@@ -179,17 +176,22 @@
         </label>
         <label class="row">
           <span>Password</span>
-          <input
-            class="field"
-            type="password"
-            bind:value={password}
-            autocomplete="off"
-            placeholder={s.has_password
-              ? "saved in the system keyring; type to replace"
-              : provider.id === "gmail"
-                ? "16-character App Password"
-                : "kept in the system keyring"}
-          />
+          <div class="flex gap-1.5">
+            <input
+              class="field"
+              type="password"
+              bind:value={form.password}
+              autocomplete="off"
+              placeholder={form.s.has_password
+                ? "saved in the system keyring; type to replace"
+                : provider.id === "gmail"
+                  ? "16-character App Password"
+                  : "kept in the system keyring"}
+            />
+            {#if form.s.has_password}
+              <button class="btn shrink-0" onclick={forget}>Forget</button>
+            {/if}
+          </div>
         </label>
         {#if provider.passwordHelp}
           <div class="row">
@@ -233,6 +235,7 @@
                 : 'border-del text-ink-100'}"
             >
               {testResult.text}
+              {#if testResult.ok}<span class="text-ink-400"> Not saved yet.</span>{/if}
             </p>
           </div>
         {/if}
@@ -243,7 +246,7 @@
         <label class="row">
           <span>Check every</span>
           <div class="flex items-center gap-2">
-            <input class="field w-20" type="number" bind:value={s.poll_minutes} min="1" />
+            <input class="field w-20" type="number" bind:value={form.s.poll_minutes} min="1" max="1440" />
             <span class="font-mono text-[12px] text-ink-400">minutes</span>
           </div>
         </label>

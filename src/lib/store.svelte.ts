@@ -1,4 +1,15 @@
-import { api, errorText, type Draft, type ThreadSummary } from "./api";
+import { api, errorText, type Draft, type Settings, type ThreadSummary } from "./api";
+
+const emptySettings: Settings = {
+  display_name: "",
+  email: "",
+  smtp_host: "",
+  smtp_port: 587,
+  smtp_user: "",
+  smtp_security: "starttls",
+  poll_minutes: 15,
+  has_password: false,
+};
 
 export type View = "threads" | "compose" | "settings";
 
@@ -9,6 +20,12 @@ class AppStore {
   refreshing = $state(false);
   /** The unsent message lives here so switching views never discards it. */
   draft = $state<Draft>({ to: "", cc: "", subject: "", body: "" });
+  /** Settings form, including a typed-but-unsaved password, kept across view switches. */
+  settingsForm = $state<{ s: Settings; password: string; loaded: boolean }>({
+    s: { ...emptySettings },
+    password: "",
+    loaded: false,
+  });
   status = $state<string>("");
   statusKind = $state<"ok" | "err" | "">("");
   private statusTimer: ReturnType<typeof setTimeout> | null = null;

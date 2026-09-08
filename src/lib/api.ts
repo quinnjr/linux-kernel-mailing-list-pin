@@ -28,6 +28,7 @@ export interface ThreadSummary {
   sent_at: string;
   last_checked_at: string | null;
   lore_url: string;
+  status: "sent" | "unconfirmed";
   reply_count: number;
   unread_count: number;
   last_activity: string;
@@ -65,7 +66,8 @@ export const api = {
   saveSettings: (settings: Settings, password?: string) =>
     invoke<Settings>("save_settings", { settings, password: password || null }),
   testSmtp: (settings: Settings, password?: string) =>
-    invoke<void>("test_smtp", { settings, password: password || null }),
+    invoke<string>("test_smtp", { settings, password: password || null }),
+  forgetPassword: () => invoke<Settings>("forget_password"),
   defaultRecipient: () => invoke<string>("default_recipient"),
   sendEmail: (draft: Draft) => invoke<ThreadSummary>("send_email", { draft }),
   listThreads: () => invoke<ThreadSummary[]>("list_threads"),

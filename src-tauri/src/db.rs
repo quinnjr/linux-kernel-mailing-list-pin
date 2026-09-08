@@ -26,7 +26,7 @@ pub struct NewReply<'a> {
     pub date: &'a str,
     pub subject: &'a str,
     pub body: &'a str,
-    pub lore_url: &'a str,
+    pub lore_url: String,
 }
 
 impl Db {
@@ -49,7 +49,8 @@ impl Db {
                 body TEXT NOT NULL,
                 sent_at TEXT NOT NULL,
                 last_checked_at TEXT,
-                lore_url TEXT NOT NULL
+                lore_url TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'sent'
             );
             CREATE TABLE IF NOT EXISTS replies (
                 id INTEGER PRIMARY KEY,
@@ -77,6 +78,19 @@ impl Db {
     /// rebuilt and refilled on the next check.
     fn migrate(&self) -> AppResult<()> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version >= 2 {
+            return Ok(());
+        }
+        self.conn.execute_batch("BEGIN")?;
+        let result = self.migrate_steps(version);
+        match result {
+            Ok(()) => self.conn.execute_batch("COMMIT")?,
+            Err(_) => self.conn.execute_batch("ROLLBACK")?,
+        }
+        result
+    }
+
+    fn migrate_steps(&self, version: i64) -> AppResult<()> {
         if version < 1 {
             let old_global_unique: bool = self
                 .conn
@@ -110,8 +124,19 @@ impl Db {
                     "#,
                 )?;
             }
-            self.conn.pragma_update(None, "user_version", 1)?;
         }
+        if version < 2 {
+            let has_status = self
+                .conn
+                .prepare("SELECT status FROM threads LIMIT 0")
+                .is_ok();
+            if !has_status {
+                self.conn.execute_batch(
+                    "ALTER TABLE threads ADD COLUMN status TEXT NOT NULL DEFAULT 'sent'",
+                )?;
+            }
+        }
+        self.conn.pragma_update(None, "user_version", 2)?;
         Ok(())
     }
 
@@ -173,7 +198,7 @@ impl Db {
     }
 
     const SUMMARY_SQL: &'static str = r#"
-        SELECT t.id, t.message_id, t.subject, t.to_addr, t.cc, t.sent_at, t.last_checked_at, t.lore_url,
+        SELECT t.id, t.message_id, t.subject, t.to_addr, t.cc, t.sent_at, t.last_checked_at, t.lore_url, t.status,
                (SELECT COUNT(*) FROM replies r WHERE r.thread_id = t.id),
                (SELECT COUNT(*) FROM replies r WHERE r.thread_id = t.id AND r.read = 0),
                COALESCE((SELECT MAX(r.date) FROM replies r WHERE r.thread_id = t.id), t.sent_at) AS last_activity
@@ -190,9 +215,10 @@ impl Db {
             sent_at: r.get(5)?,
             last_checked_at: r.get(6)?,
             lore_url: r.get(7)?,
-            reply_count: r.get(8)?,
-            unread_count: r.get(9)?,
-            last_activity: r.get(10)?,
+            status: r.get(8)?,
+            reply_count: r.get(9)?,
+            unread_count: r.get(10)?,
+            last_activity: r.get(11)?,
         })
     }
 
@@ -258,6 +284,14 @@ impl Db {
         Ok(())
     }
 
+    pub fn set_status(&self, id: i64, status: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE threads SET status = ?2 WHERE id = ?1 AND status <> ?2",
+            params![id, status],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_thread(&self, id: i64) -> AppResult<()> {
         self.conn.execute("DELETE FROM threads WHERE id = ?1", [id])?;
         Ok(())
@@ -265,17 +299,28 @@ impl Db {
 
     // ----- replies -----
 
-    /// Returns true if the reply was newly inserted.
-    pub fn insert_reply(&self, r: &NewReply) -> AppResult<bool> {
-        let n = self.conn.execute(
+    /// Insert whatever is new, in one transaction. Returns how many were new.
+    pub fn insert_replies(&self, replies: &[NewReply]) -> AppResult<usize> {
+        let mut stmt = self.conn.prepare_cached(
             "INSERT OR IGNORE INTO replies(thread_id, message_id, in_reply_to, from_name, from_addr, date, subject, body, lore_url)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
+        )?;
+        self.conn.execute_batch("BEGIN")?;
+        let mut inserted = 0;
+        for r in replies {
+            match stmt.execute(params![
                 r.thread_id, r.message_id, r.in_reply_to, r.from_name, r.from_addr,
                 r.date, r.subject, r.body, r.lore_url
-            ],
-        )?;
-        Ok(n > 0)
+            ]) {
+                Ok(n) => inserted += n,
+                Err(e) => {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn.execute_batch("COMMIT")?;
+        Ok(inserted)
     }
 
     pub fn mark_thread_read(&self, thread_id: i64) -> AppResult<()> {

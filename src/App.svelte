@@ -24,13 +24,17 @@
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === "m") store.view = "compose";
-    else if (e.key === "i") store.view = "threads";
-    else if (e.key === "s") store.view = "settings";
-    else if (e.key === "G") store.refreshAll();
-    else if (store.view === "threads" && (e.key === "j" || e.key === "k")) {
+    // Compare case-insensitively so Caps Lock does not disable the keys;
+    // G is the one shifted binding.
+    const key = e.key.toLowerCase();
+    if (key === "g" && e.shiftKey) store.refreshAll();
+    else if (e.shiftKey) return;
+    else if (key === "m") store.view = "compose";
+    else if (key === "i") store.view = "threads";
+    else if (key === "s") store.view = "settings";
+    else if (store.view === "threads" && (key === "j" || key === "k")) {
       e.preventDefault();
-      store.move(e.key === "j" ? 1 : -1);
+      store.move(key === "j" ? 1 : -1);
     }
   }
 </script>

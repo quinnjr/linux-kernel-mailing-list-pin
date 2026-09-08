@@ -6,16 +6,24 @@ use tauri::{AppHandle, Emitter, State};
 
 pub const THREADS_UPDATED: &str = "threads-updated";
 
+/// Keyring access talks to the Secret Service over D-Bus and can block on an
+/// unlock prompt, so it never runs on the UI thread.
+async fn keyring<T: Send + 'static>(f: impl FnOnce() -> AppResult<T> + Send + 'static) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Other(format!("keyring task failed: {e}")))?
+}
+
 #[tauri::command]
-pub fn get_settings(state: State<AppState>) -> AppResult<Settings> {
+pub async fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
     let mut s = state.db.lock().unwrap().load_settings()?;
-    s.has_password = secrets::has_password(&s.smtp_user);
+    s.has_password = keyring(secrets::get_password).await?.is_some();
     Ok(s)
 }
 
 #[tauri::command]
-pub fn save_settings(
-    state: State<AppState>,
+pub async fn save_settings(
+    state: State<'_, AppState>,
     settings: Settings,
     password: Option<String>,
 ) -> AppResult<Settings> {
@@ -24,25 +32,40 @@ pub fn save_settings(
         if settings.smtp_user.is_empty() {
             return Err(AppError::Settings("enter the SMTP username before saving a password".into()));
         }
-        secrets::set_password(&settings.smtp_user, &p)?;
+        let p = secrets::normalize(&p);
+        keyring(move || secrets::set_password(&p)).await?;
     }
     state.db.lock().unwrap().save_settings(&settings)?;
     state.poll_changed.notify_one();
     let mut s = settings;
-    s.has_password = secrets::has_password(&s.smtp_user);
+    s.has_password = keyring(secrets::get_password).await?.is_some();
     Ok(s)
 }
 
-/// Try the SMTP settings as given. A non-empty `password` is used as-is
-/// (without being saved); otherwise the keyring entry for `smtp_user` is used.
 #[tauri::command]
-pub async fn test_smtp(settings: Settings, password: Option<String>) -> AppResult<()> {
-    let password = match password.filter(|p| !p.is_empty()) {
-        Some(p) => p,
-        None if settings.smtp_user.is_empty() => String::new(),
-        None => secrets::get_password(&settings.smtp_user)?
-            .ok_or_else(|| AppError::Settings("no password entered or saved".into()))?,
-    };
+pub async fn forget_password(state: State<'_, AppState>) -> AppResult<Settings> {
+    keyring(secrets::delete_password).await?;
+    let mut s = state.db.lock().unwrap().load_settings()?;
+    s.has_password = false;
+    Ok(s)
+}
+
+/// The password to use for `settings`: a typed one wins, otherwise the keyring.
+async fn resolve_password(settings: &Settings, typed: Option<String>) -> AppResult<String> {
+    match typed.filter(|p| !p.is_empty()) {
+        Some(p) => Ok(secrets::normalize(&p)),
+        None if settings.smtp_user.is_empty() => Ok(String::new()),
+        None => keyring(secrets::get_password)
+            .await?
+            .ok_or_else(|| AppError::Settings("no SMTP password saved in Settings".into())),
+    }
+}
+
+/// Try the SMTP settings as given, without saving anything. Returns a
+/// sentence saying what was verified.
+#[tauri::command]
+pub async fn test_smtp(settings: Settings, password: Option<String>) -> AppResult<String> {
+    let password = resolve_password(&settings, password).await?;
     mail::test_connection(&settings, &password).await
 }
 
@@ -58,16 +81,13 @@ pub async fn send_email(
     draft: Draft,
 ) -> AppResult<ThreadSummary> {
     let settings = state.db.lock().unwrap().load_settings()?;
-    let password = if settings.smtp_user.is_empty() {
-        String::new()
-    } else {
-        secrets::get_password(&settings.smtp_user)?
-            .ok_or_else(|| AppError::Settings("no SMTP password saved in Settings".into()))?
-    };
+    let password = resolve_password(&settings, None).await?;
     let message_id = mail::new_message_id(&settings.email);
     let email = mail::build(&settings, &draft, &message_id)?;
-    // Record the thread before the irreversible send, so a database failure
-    // can never leave a delivered message untracked; roll back if SMTP fails.
+    // Record the thread before the irreversible send. SMTP cannot tell us
+    // whether a failure happened before or after the server queued the
+    // message, so on error the row is kept and marked unconfirmed rather
+    // than deleted: lore is the arbiter of whether it went out.
     let now = chrono::Utc::now().to_rfc3339();
     let lore_url = mail::lore_url(&message_id);
     let id = state.db.lock().unwrap().insert_thread(&NewThread {
@@ -79,9 +99,13 @@ pub async fn send_email(
         sent_at: &now,
         lore_url: &lore_url,
     })?;
-    if let Err(e) = mail::send(&settings, &password, email).await {
-        let _ = state.db.lock().unwrap().delete_thread(id);
-        return Err(e);
+    let result = mail::send(&settings, &password, email).await;
+    if let Err(e) = result {
+        state.db.lock().unwrap().set_status(id, "unconfirmed")?;
+        let _ = app.emit(THREADS_UPDATED, ());
+        return Err(AppError::Other(format!(
+            "{e}. The draft is kept as an unconfirmed thread; if it shows up on lore it was delivered, otherwise stop tracking it and send again."
+        )));
     }
     let _ = app.emit(THREADS_UPDATED, ());
     let detail = state.db.lock().unwrap().get_thread(id)?;
@@ -163,11 +187,11 @@ async fn refresh_one(state: &AppState, id: i64) -> AppResult<RefreshReport> {
         }
         Err(e) => return Err(e),
     };
-    let db = state.db.lock().unwrap();
-    let mut new_replies = 0;
     let root = mail::bare_id(&message_id);
-    for m in messages.iter().filter(|m| mail::bare_id(&m.message_id) != root) {
-        let inserted = db.insert_reply(&NewReply {
+    let replies: Vec<NewReply> = messages
+        .iter()
+        .filter(|m| mail::bare_id(&m.message_id) != root)
+        .map(|m| NewReply {
             thread_id: id,
             message_id: &m.message_id,
             in_reply_to: m.in_reply_to.as_deref(),
@@ -176,12 +200,13 @@ async fn refresh_one(state: &AppState, id: i64) -> AppResult<RefreshReport> {
             date: &m.date,
             subject: &m.subject,
             body: &m.body,
-            lore_url: &mail::lore_url(&m.message_id),
-        })?;
-        if inserted {
-            new_replies += 1;
-        }
-    }
+            lore_url: mail::lore_url(&m.message_id),
+        })
+        .collect();
+    let db = state.db.lock().unwrap();
+    let new_replies = db.insert_replies(&replies)?;
+    // Seeing the thread on lore proves the message was delivered.
+    db.set_status(id, "sent")?;
     db.touch_checked(id, &now)?;
     Ok(RefreshReport { thread_id: id, new_replies, on_lore: true, error: None })
 }
