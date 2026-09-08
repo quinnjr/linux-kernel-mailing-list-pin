@@ -37,6 +37,8 @@ build() {
   cd "$_pkgname"
   export CARGO_TARGET_DIR=target
   # Keep build paths out of the binary (panic messages would otherwise cite $srcdir).
+  # One reference survives: tauri's codegen embeds CARGO_MANIFEST_DIR, which
+  # remapping cannot reach, so makepkg still prints a harmless $srcdir warning.
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
   # The Vite bundle is embedded by tauri-build, so plain cargo suffices.
   pnpm build
