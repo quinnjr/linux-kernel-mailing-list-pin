@@ -63,6 +63,8 @@ export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings, password?: string) =>
     invoke<Settings>("save_settings", { settings, password: password || null }),
+  testSmtp: (settings: Settings, password?: string) =>
+    invoke<void>("test_smtp", { settings, password: password || null }),
   defaultRecipient: () => invoke<string>("default_recipient"),
   sendEmail: (draft: Draft) => invoke<ThreadSummary>("send_email", { draft }),
   listThreads: () => invoke<ThreadSummary[]>("list_threads"),

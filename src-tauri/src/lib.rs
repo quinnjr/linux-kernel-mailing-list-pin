@@ -39,6 +39,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::save_settings,
+            commands::test_smtp,
             commands::default_recipient,
             commands::send_email,
             commands::list_threads,

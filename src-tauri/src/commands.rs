@@ -21,12 +21,26 @@ pub fn save_settings(
 ) -> AppResult<Settings> {
     state.db.lock().unwrap().save_settings(&settings)?;
     if let Some(p) = password.filter(|p| !p.is_empty()) {
-        secrets::set_password(&settings.smtp_user, &p)?;
+        // Google shows App Passwords as "abcd efgh ijkl mnop"; the spaces are not part of it.
+        secrets::set_password(&settings.smtp_user, &p.split_whitespace().collect::<String>())?;
     }
     state.poll_changed.notify_one();
     let mut s = settings;
     s.has_password = secrets::has_password(&s.smtp_user);
     Ok(s)
+}
+
+/// Try the SMTP settings as given. A non-empty `password` is used as-is
+/// (without being saved); otherwise the keyring entry for `smtp_user` is used.
+#[tauri::command]
+pub async fn test_smtp(settings: Settings, password: Option<String>) -> AppResult<()> {
+    let password = match password.filter(|p| !p.is_empty()) {
+        Some(p) => p.split_whitespace().collect::<String>(),
+        None if settings.smtp_user.is_empty() => String::new(),
+        None => secrets::get_password(&settings.smtp_user)?
+            .ok_or_else(|| AppError::Settings("no password entered or saved".into()))?,
+    };
+    mail::test_connection(&settings, &password).await
 }
 
 #[tauri::command]

@@ -7,16 +7,26 @@ class AppStore {
   threads = $state<ThreadSummary[]>([]);
   selectedId = $state<number | null>(null);
   refreshing = $state(false);
-  toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
-  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  status = $state<string>("");
+  statusKind = $state<"ok" | "err" | "">("");
+  private statusTimer: ReturnType<typeof setTimeout> | null = null;
 
   get unreadTotal() {
     return this.threads.reduce((n, t) => n + t.unread_count, 0);
   }
 
+  get lastChecked(): string | null {
+    let latest: string | null = null;
+    for (const t of this.threads) {
+      if (t.last_checked_at && (!latest || t.last_checked_at > latest)) latest = t.last_checked_at;
+    }
+    return latest;
+  }
+
   async loadThreads() {
     try {
       this.threads = await api.listThreads();
+      if (this.selectedId === null && this.threads.length > 0) this.selectedId = this.threads[0].id;
     } catch (e) {
       this.notify("err", errorText(e));
     }
@@ -31,7 +41,7 @@ class AppStore {
       const pending = reports.filter((r) => !r.on_lore).length;
       const parts = [fresh ? `${fresh} new repl${fresh === 1 ? "y" : "ies"}` : "no new replies"];
       if (pending) parts.push(`${pending} not on lore yet`);
-      this.notify("ok", parts.join(", "));
+      this.notify("ok", parts.join(" · "));
     } catch (e) {
       this.notify("err", errorText(e));
     } finally {
@@ -40,15 +50,27 @@ class AppStore {
     }
   }
 
+  /** Step the selection through the index, mutt style (j/k). */
+  move(delta: 1 | -1) {
+    if (this.threads.length === 0) return;
+    const i = this.threads.findIndex((t) => t.id === this.selectedId);
+    const next = i < 0 ? (delta > 0 ? 0 : this.threads.length - 1) : Math.min(this.threads.length - 1, Math.max(0, i + delta));
+    this.selectedId = this.threads[next].id;
+  }
+
   open(id: number) {
     this.selectedId = id;
     this.view = "threads";
   }
 
   notify(kind: "ok" | "err", text: string) {
-    this.toast = { kind, text };
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => (this.toast = null), kind === "err" ? 8000 : 4000);
+    this.status = text;
+    this.statusKind = kind;
+    if (this.statusTimer) clearTimeout(this.statusTimer);
+    this.statusTimer = setTimeout(() => {
+      this.status = "";
+      this.statusKind = "";
+    }, kind === "err" ? 10000 : 5000);
   }
 }
 

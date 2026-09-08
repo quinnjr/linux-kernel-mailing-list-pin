@@ -4,11 +4,15 @@
   import { api, errorText, type ThreadDetail } from "../api";
   import { store } from "../store.svelte";
   import { absoluteTime, relativeTime } from "../format";
+  import { threadTree } from "../tree";
+  import Subject from "./Subject.svelte";
   import Message from "./Message.svelte";
 
   let { id }: { id: number } = $props();
   let detail = $state<ThreadDetail | null>(null);
   let busy = $state(false);
+
+  const rows = $derived(detail ? threadTree(detail.summary.message_id, detail.replies) : []);
 
   async function load() {
     detail = await api.getThread(id);
@@ -35,7 +39,6 @@
   }
 
   async function remove() {
-    if (!detail) return;
     await api.deleteThread(id);
     store.selectedId = null;
   }
@@ -54,66 +57,48 @@
 {#if detail}
   {@const s = detail.summary}
   <div class="flex h-full flex-col">
-    <header class="border-b border-zinc-800 px-6 py-4">
+    <header class="border-b border-ink-700 px-6 py-4">
       <div class="flex items-start gap-3">
-        <h2 class="min-w-0 flex-1 text-base font-semibold leading-snug">{s.subject || "(no subject)"}</h2>
-        <div class="flex shrink-0 gap-1">
-          <button
-            class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-            onclick={refresh}
-            disabled={busy}
-          >
-            {busy ? "Checking…" : "↻ Refresh"}
-          </button>
-          <button
-            class="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-            onclick={() => openUrl(s.lore_url)}
-          >
-            lore ↗
-          </button>
-          <button
-            class="rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-500 hover:border-red-900 hover:bg-red-950 hover:text-red-200"
-            onclick={remove}
-          >
-            Delete
-          </button>
+        <h2 class="min-w-0 flex-1 text-[15px] leading-snug">
+          <Subject subject={s.subject} strong />
+        </h2>
+        <div class="flex shrink-0 gap-1.5">
+          <button class="btn" onclick={refresh} disabled={busy}>{busy ? "Checking…" : "Check lore"}</button>
+          <button class="btn" onclick={() => openUrl(s.lore_url)}>Open on lore ↗</button>
+          <button class="btn btn-danger" onclick={remove}>Stop tracking</button>
         </div>
       </div>
-      <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-zinc-500">
-        <dt>To</dt><dd class="truncate text-zinc-300">{s.to_addr}</dd>
-        {#if s.cc}<dt>Cc</dt><dd class="truncate text-zinc-300">{s.cc}</dd>{/if}
-        <dt>Sent</dt><dd class="text-zinc-300">{absoluteTime(s.sent_at)}</dd>
-        <dt>Checked</dt>
-        <dd class="text-zinc-300">{s.last_checked_at ? relativeTime(s.last_checked_at) : "never"}</dd>
-        <dt>Message-ID</dt><dd class="truncate font-mono text-zinc-400">{s.message_id}</dd>
+      <dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 font-mono text-[11.5px]">
+        <dt class="text-ink-400">To</dt><dd class="truncate text-ink-200">{s.to_addr}</dd>
+        {#if s.cc}<dt class="text-ink-400">Cc</dt><dd class="truncate text-ink-200">{s.cc}</dd>{/if}
+        <dt class="text-ink-400">Sent</dt><dd class="text-ink-200">{absoluteTime(s.sent_at)}</dd>
+        <dt class="text-ink-400">Checked</dt>
+        <dd class="text-ink-200">{s.last_checked_at ? relativeTime(s.last_checked_at) : "never"}</dd>
+        <dt class="text-ink-400">Message-ID</dt><dd class="truncate text-ink-300">{s.message_id}</dd>
       </dl>
     </header>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-      <Message
-        from="You"
-        addr=""
-        date={s.sent_at}
-        body={detail.body}
-        mine
-      />
-      {#if detail.replies.length === 0}
-        <p class="mt-6 text-center text-sm text-zinc-600">
-          No replies yet. The app checks lore.kernel.org in the background.
+      <Message from="You" date={s.sent_at} body={detail.body} mine prefix="" depth={0} />
+      {#if rows.length === 0}
+        <p class="mt-8 text-center font-mono text-[12.5px] text-ink-400">
+          No replies on lore yet. Checked automatically every few minutes.
         </p>
       {/if}
-      {#each detail.replies as r (r.id)}
+      {#each rows as row (row.reply.id)}
         <Message
-          from={r.from_name || r.from_addr}
-          addr={r.from_name ? r.from_addr : ""}
-          date={r.date}
-          body={r.body}
-          loreUrl={r.lore_url}
-          directReply={r.in_reply_to === s.message_id}
+          from={row.reply.from_name || row.reply.from_addr}
+          addr={row.reply.from_name ? row.reply.from_addr : ""}
+          date={row.reply.date}
+          body={row.reply.body}
+          loreUrl={row.reply.lore_url}
+          prefix={row.prefix}
+          depth={row.depth}
+          unread={!row.reply.read}
         />
       {/each}
     </div>
   </div>
 {:else}
-  <div class="flex h-full items-center justify-center text-sm text-zinc-600">Loading…</div>
+  <div class="flex h-full items-center justify-center font-mono text-[13px] text-ink-400">Loading…</div>
 {/if}

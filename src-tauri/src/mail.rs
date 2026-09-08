@@ -32,6 +32,32 @@ pub fn parse_address_list(raw: &str) -> AppResult<Vec<Mailbox>> {
         .collect()
 }
 
+fn transport(settings: &Settings, password: &str) -> AppResult<AsyncSmtpTransport<Tokio1Executor>> {
+    let mut t = match settings.smtp_security.as_str() {
+        "tls" => AsyncSmtpTransport::<Tokio1Executor>::relay(&settings.smtp_host)?,
+        "none" => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&settings.smtp_host),
+        _ => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&settings.smtp_host)?,
+    }
+    .port(settings.smtp_port);
+    if !settings.smtp_user.is_empty() {
+        t = t.credentials(Credentials::new(settings.smtp_user.clone(), password.to_string()));
+    }
+    Ok(t.build())
+}
+
+/// Connect, negotiate TLS and authenticate without sending anything.
+pub async fn test_connection(settings: &Settings, password: &str) -> AppResult<()> {
+    if settings.smtp_host.is_empty() {
+        return Err(AppError::Settings("enter an SMTP host first".into()));
+    }
+    let ok = transport(settings, password)?.test_connection().await?;
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other("server did not answer NOOP".into()))
+    }
+}
+
 pub async fn send(settings: &Settings, password: &str, draft: &Draft) -> AppResult<Sent> {
     if settings.email.is_empty() || settings.smtp_host.is_empty() {
         return Err(AppError::Settings(
@@ -63,18 +89,6 @@ pub async fn send(settings: &Settings, password: &str, draft: &Draft) -> AppResu
     }
     let email = builder.body(draft.body.clone())?;
 
-    let mut transport = match settings.smtp_security.as_str() {
-        "tls" => AsyncSmtpTransport::<Tokio1Executor>::relay(&settings.smtp_host)?,
-        "none" => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&settings.smtp_host),
-        _ => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&settings.smtp_host)?,
-    }
-    .port(settings.smtp_port);
-    if !settings.smtp_user.is_empty() {
-        transport = transport.credentials(Credentials::new(
-            settings.smtp_user.clone(),
-            password.to_string(),
-        ));
-    }
-    transport.build().send(email).await?;
+    transport(settings, password)?.send(email).await?;
     Ok(Sent { message_id })
 }
