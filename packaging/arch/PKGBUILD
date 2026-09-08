@@ -40,16 +40,17 @@ build() {
   # One reference survives: tauri's codegen embeds CARGO_MANIFEST_DIR, which
   # remapping cannot reach, so makepkg still prints a harmless $srcdir warning.
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
-  # The Vite bundle is embedded by tauri-build, so plain cargo suffices.
+  # The Vite bundle is embedded by tauri-build; custom-protocol is the feature
+  # `tauri build` would enable, without it the app tries to load localhost:1420.
   pnpm build
-  cargo build --release --frozen --manifest-path src-tauri/Cargo.toml
+  cargo build --release --frozen --features custom-protocol --manifest-path src-tauri/Cargo.toml
 }
 
 check() {
   cd "$_pkgname"
   export CARGO_TARGET_DIR=target
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
-  cargo test --release --frozen --manifest-path src-tauri/Cargo.toml
+  cargo test --release --frozen --features custom-protocol --manifest-path src-tauri/Cargo.toml
 }
 
 package() {

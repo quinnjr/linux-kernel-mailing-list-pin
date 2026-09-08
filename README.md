@@ -22,6 +22,9 @@ pnpm tauri dev          # development
 pnpm tauri build        # release bundles under src-tauri/target/release/bundle
 ```
 
+Building with plain `cargo build --release` needs `--features custom-protocol`,
+otherwise the binary tries to load the Vite dev server at `localhost:1420`.
+
 Tests:
 
 ```sh

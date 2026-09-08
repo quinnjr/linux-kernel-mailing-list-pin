@@ -9,6 +9,11 @@ license = "MIT"
 name = "lkml_pin_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# `tauri build` turns this on; without it the binary loads the Vite dev server
+# instead of the embedded frontend. Pass it explicitly to plain cargo builds.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
